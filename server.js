@@ -40,7 +40,6 @@ function verifySignature(userId, timestamp, signature) {
   return signature === expected;
 }
 
-// ===== ТЕСТОВЫЕ =====
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Сервер работает!' });
 });
@@ -49,7 +48,6 @@ app.get('/api/checkAdmin', (req, res) => {
   res.json({ isAdmin: false });
 });
 
-// ===== ПОЛУЧИТЬ БАЛАНС =====
 app.post('/api/getBalance', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -74,7 +72,6 @@ app.post('/api/getBalance', async (req, res) => {
   }
 });
 
-// ===== ОБНОВИТЬ БАЛАНС =====
 app.post('/api/updateBalance', async (req, res) => {
   try {
     const { userId, amount } = req.body;
@@ -89,7 +86,6 @@ app.post('/api/updateBalance', async (req, res) => {
   }
 });
 
-// ===== ДОБАВИТЬ ПРОСМОТР =====
 app.post('/api/addAdView', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -128,7 +124,6 @@ app.post('/api/addAdView', async (req, res) => {
   }
 });
 
-// ===== СОЗДАТЬ ЗАЯВКУ НА ВЫВОД =====
 app.post('/api/createWithdraw', async (req, res) => {
   try {
     const { userId, method, amount, details } = req.body;
@@ -153,7 +148,6 @@ app.post('/api/createWithdraw', async (req, res) => {
   }
 });
 
-// ===== ПОЛУЧИТЬ ЗАЯВКИ ПОЛЬЗОВАТЕЛЯ =====
 app.post('/api/getWithdrawRequests', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -184,7 +178,6 @@ app.post('/api/getWithdrawRequests', async (req, res) => {
 // ===================== АДМИНСКИЕ API =============================
 // ================================================================
 
-// ===== АДМИН: ПОЛУЧИТЬ ВСЕ ЗАЯВКИ =====
 app.post('/api/getAdminRequests', async (req, res) => {
   try {
     const { timestamp, signature } = req.body;
@@ -215,7 +208,6 @@ app.post('/api/getAdminRequests', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ПОДТВЕРДИТЬ ЗАЯВКУ =====
 app.post('/api/confirmWithdraw', async (req, res) => {
   try {
     const { requestId, comment, timestamp, signature } = req.body;
@@ -249,7 +241,6 @@ app.post('/api/confirmWithdraw', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ОТКЛОНИТЬ ЗАЯВКУ =====
 app.post('/api/rejectWithdraw', async (req, res) => {
   try {
     const { requestId, timestamp, signature } = req.body;
@@ -273,7 +264,6 @@ app.post('/api/rejectWithdraw', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ПОЛУЧИТЬ СТАТИСТИКУ =====
 app.post('/api/getStats', async (req, res) => {
   try {
     const { timestamp, signature } = req.body;
@@ -300,7 +290,6 @@ app.post('/api/getStats', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ПОИСК ПОЛЬЗОВАТЕЛЯ =====
 app.post('/api/searchUser', async (req, res) => {
   try {
     const { userId, timestamp, signature } = req.body;
@@ -323,7 +312,6 @@ app.post('/api/searchUser', async (req, res) => {
   }
 });
 
-// ===== АДМИН: НАСТРОЙКИ НАГРАД =====
 app.post('/api/getRewardSettings', async (req, res) => {
   try {
     const doc = await db.collection('settings').doc('rewardSettings').get();
@@ -337,7 +325,6 @@ app.post('/api/getRewardSettings', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ОБНОВИТЬ НАСТРОЙКИ НАГРАД =====
 app.post('/api/updateRewardSettings', async (req, res) => {
   try {
     const { tabby, adsgram, timestamp, signature } = req.body;
@@ -351,7 +338,6 @@ app.post('/api/updateRewardSettings', async (req, res) => {
   }
 });
 
-// ===== АДМИН: ПОЛУЧИТЬ СПИСОК ЗАДАНИЙ =====
 app.post('/api/getTasksList', async (req, res) => {
   try {
     const { timestamp, signature } = req.body;
@@ -379,7 +365,6 @@ app.post('/api/getTasksList', async (req, res) => {
   }
 });
 
-// ===== АДМИН: УДАЛИТЬ ЗАДАНИЕ =====
 app.post('/api/deleteTask', async (req, res) => {
   try {
     const { taskId, timestamp, signature } = req.body;
@@ -393,7 +378,6 @@ app.post('/api/deleteTask', async (req, res) => {
   }
 });
 
-// ===== АДМИН: СОЗДАТЬ ПРОМОКОД =====
 app.post('/api/createPromo', async (req, res) => {
   try {
     const { reward, timestamp, signature } = req.body;
@@ -414,7 +398,6 @@ app.post('/api/createPromo', async (req, res) => {
   }
 });
 
-// ===== АДМИН: РАССЫЛКА =====
 app.post('/api/sendMailing', async (req, res) => {
   try {
     const { text, timestamp, signature } = req.body;
@@ -445,7 +428,6 @@ app.post('/api/sendMailing', async (req, res) => {
   }
 });
 
-// ===== АДМИН: СБРОСИТЬ БАЛАНСЫ =====
 app.post('/api/resetBalances', async (req, res) => {
   try {
     const { timestamp, signature } = req.body;
@@ -464,7 +446,6 @@ app.post('/api/resetBalances', async (req, res) => {
   }
 });
 
-// ===== АДМИН: СОЗДАТЬ ЗАДАНИЕ (пользователем) =====
 app.post('/api/createUserTask', async (req, res) => {
   try {
     const { userId, name, link, type, users, totalCost, timestamp, signature } = req.body;
@@ -492,7 +473,6 @@ app.post('/api/createUserTask', async (req, res) => {
   }
 });
 
-// ===== ЗАПУСК =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
