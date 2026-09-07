@@ -182,23 +182,17 @@ app.post('/api/getWithdrawRequests', async (req, res) => {
 });
 
 // ================================================================
-// ===================== АДМИНСКИЕ API (БЕЗ ПРОВЕРКИ ПОДПИСИ) =====
+// ===================== АДМИНСКИЕ API (БЕЗ ИНДЕКСА) ==============
 // ================================================================
 
-// ===== АДМИН: ПОЛУЧИТЬ ВСЕ ЗАЯВКИ =====
+// ===== АДМИН: ПОЛУЧИТЬ ВСЕ ЗАЯВКИ (БЕЗ orderBy) =====
 app.post('/api/getAdminRequests', async (req, res) => {
   try {
-    // ПРОВЕРКА ПОДПИСИ ОТКЛЮЧЕНА ДЛЯ АДМИНКИ
-    // const { timestamp, signature } = req.body;
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
-    
     console.log('📥 Запрос всех заявок от админа');
     
+    // Убираем orderBy, чтобы не требовать индекс
     const snapshot = await db.collection('withdraw_requests')
       .where('status', 'in', ['pending', 'need_check'])
-      .orderBy('createdAt', 'desc')
       .get();
     
     const requests = [];
@@ -216,6 +210,14 @@ app.post('/api/getAdminRequests', async (req, res) => {
       });
     });
     
+    // Сортируем на сервере (в коде)
+    requests.sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return b.createdAt._seconds - a.createdAt._seconds;
+      }
+      return 0;
+    });
+    
     console.log(`📊 Найдено заявок: ${requests.length}`);
     res.json({ requests });
   } catch (error) {
@@ -227,11 +229,7 @@ app.post('/api/getAdminRequests', async (req, res) => {
 // ===== АДМИН: ПОДТВЕРДИТЬ ЗАЯВКУ =====
 app.post('/api/confirmWithdraw', async (req, res) => {
   try {
-    const { requestId, comment, timestamp, signature } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
+    const { requestId, comment } = req.body;
     
     const docRef = db.collection('withdraw_requests').doc(requestId);
     const doc = await docRef.get();
@@ -263,11 +261,7 @@ app.post('/api/confirmWithdraw', async (req, res) => {
 // ===== АДМИН: ОТКЛОНИТЬ ЗАЯВКУ =====
 app.post('/api/rejectWithdraw', async (req, res) => {
   try {
-    const { requestId, timestamp, signature } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
+    const { requestId } = req.body;
     
     const docRef = db.collection('withdraw_requests').doc(requestId);
     const doc = await docRef.get();
@@ -289,12 +283,6 @@ app.post('/api/rejectWithdraw', async (req, res) => {
 // ===== АДМИН: СТАТИСТИКА =====
 app.post('/api/getStats', async (req, res) => {
   try {
-    // ПРОВЕРКА ПОДПИСИ ОТКЛЮЧЕНА
-    // const { timestamp, signature } = req.body;
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
-    
     console.log('📊 Запрос статистики от админа');
     
     const usersSnapshot = await db.collection('users').get();
@@ -323,10 +311,6 @@ app.post('/api/getStats', async (req, res) => {
 app.post('/api/searchUser', async (req, res) => {
   try {
     const { userId } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     
     const doc = await db.collection('users').doc(userId.toString()).get();
     if (!doc.exists) return res.json({ user: null });
@@ -361,10 +345,6 @@ app.post('/api/getRewardSettings', async (req, res) => {
 app.post('/api/updateRewardSettings', async (req, res) => {
   try {
     const { tabby, adsgram } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     await db.collection('settings').doc('rewardSettings').set({ tabby, adsgram });
     res.json({ success: true });
   } catch (error) {
@@ -375,11 +355,6 @@ app.post('/api/updateRewardSettings', async (req, res) => {
 // ===== АДМИН: СПИСОК ЗАДАНИЙ =====
 app.post('/api/getTasksList', async (req, res) => {
   try {
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
-    
     const snapshot = await db.collection('user_tasks')
       .where('active', '==', true)
       .get();
@@ -404,10 +379,6 @@ app.post('/api/getTasksList', async (req, res) => {
 app.post('/api/deleteTask', async (req, res) => {
   try {
     const { taskId } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     await db.collection('user_tasks').doc(taskId).update({ active: false });
     res.json({ success: true });
   } catch (error) {
@@ -419,10 +390,6 @@ app.post('/api/deleteTask', async (req, res) => {
 app.post('/api/createPromo', async (req, res) => {
   try {
     const { reward } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     await db.collection('promo_codes').doc(code).set({
       code: code,
@@ -441,10 +408,6 @@ app.post('/api/createPromo', async (req, res) => {
 app.post('/api/sendMailing', async (req, res) => {
   try {
     const { text } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     const usersSnapshot = await db.collection('users').get();
     let count = 0;
     const promises = [];
@@ -472,10 +435,6 @@ app.post('/api/sendMailing', async (req, res) => {
 // ===== АДМИН: СБРОС БАЛАНСОВ =====
 app.post('/api/resetBalances', async (req, res) => {
   try {
-    // Проверка подписи отключена
-    // if (!verifySignature('admin', timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     const usersSnapshot = await db.collection('users').get();
     const promises = [];
     usersSnapshot.forEach(doc => {
@@ -492,10 +451,6 @@ app.post('/api/resetBalances', async (req, res) => {
 app.post('/api/createUserTask', async (req, res) => {
   try {
     const { userId, name, link, type, users, totalCost } = req.body;
-    // Проверка подписи отключена
-    // if (!verifySignature(userId, timestamp, signature)) {
-    //   return res.status(403).json({ error: 'Недействительная подпись' });
-    // }
     const taskId = 'user_task_' + Date.now() + '_' + userId;
     await db.collection('user_tasks').doc(taskId).set({
       id: taskId,
@@ -535,5 +490,5 @@ app.get('/api/testAllRequests', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ${PORT}`);
-  console.log('✅ ВСЕ АДМИНСКИЕ API ЗАГРУЖЕНЫ (ПРОВЕРКА ПОДПИСИ ОТКЛЮЧЕНА)');
+  console.log('✅ ВСЕ АДМИНСКИЕ API ЗАГРУЖЕНЫ');
 });
