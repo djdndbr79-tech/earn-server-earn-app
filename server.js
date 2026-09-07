@@ -8,8 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-console.log('🔥 Базовый сервер запускается....');
+console.log('🔥 СЕРВЕР ЗАПУСКАЕТСЯ...');
 
+// ===== FIREBASE =====
 const serviceAccount = {
   "type": "service_account",
   "project_id": "fhrbfbgo",
@@ -26,27 +27,33 @@ const serviceAccount = {
 
 if (serviceAccount.private_key) {
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  console.log('✅ Firebase инициализирован');
+  console.log('✅ FIREBASE ИНИЦИАЛИЗИРОВАН');
 } else {
-  console.log('⚠️ Нет FIREBASE_PRIVATE_KEY');
+  console.log('⚠️ НЕТ FIREBASE_PRIVATE_KEY');
 }
 
 const db = admin.firestore();
 const SECRET_KEY = process.env.SECRET_KEY || 'my-super-secret-key-2026';
 
+// ===== ПРОВЕРКА ПОДПИСИ =====
 function verifySignature(userId, timestamp, signature) {
   const data = userId + '|' + timestamp;
   const expected = crypto.createHmac('sha256', SECRET_KEY).update(data).digest('hex');
   return signature === expected;
 }
 
+// ===== ТЕСТОВЫЕ ЭНДПОИНТЫ =====
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Базовый сервер работает!' });
+  res.json({ status: 'ok', message: 'Сервер работает!' });
 });
 
 app.get('/api/checkAdmin', (req, res) => {
   res.json({ isAdmin: false });
 });
+
+// ================================================================
+// ===================== ОСНОВНЫЕ API =============================
+// ================================================================
 
 app.post('/api/getBalance', async (req, res) => {
   try {
@@ -174,7 +181,344 @@ app.post('/api/getWithdrawRequests', async (req, res) => {
   }
 });
 
+// ================================================================
+// ===================== АДМИНСКИЕ API =============================
+// ================================================================
+
+// ===== АДМИН: ПОЛУЧИТЬ ВСЕ ЗАЯВКИ (ИСПРАВЛЕНО) =====
+app.post('/api/getAdminRequests', async (req, res) => {
+  try {
+    const { timestamp, signature } = req.body;
+    
+    // ПРОВЕРКА ПОДПИСИ
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    
+    // ПОЛУЧАЕМ ЗАЯВКИ СО СТАТУСОМ pending ИЛИ need_check
+    const snapshot = await db.collection('withdraw_requests')
+      .where('status', 'in', ['pending', 'need_check'])
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    const requests = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      requests.push({
+        id: doc.id,
+        userId: data.userId,
+        amount: data.amount,
+        method: data.method,
+        details: data.details,
+        status: data.status,
+        comment: data.comment || null,
+        createdAt: data.createdAt
+      });
+    });
+    
+    res.json({ requests });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: ПОДТВЕРДИТЬ ЗАЯВКУ =====
+app.post('/api/confirmWithdraw', async (req, res) => {
+  try {
+    const { requestId, comment, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const docRef = db.collection('withdraw_requests').doc(requestId);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Заявка не найдена' });
+    const data = doc.data();
+    await docRef.update({
+      status: 'confirmed',
+      comment: comment,
+      confirmedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    try {
+      const message = `✅ Ваш вывод на ${data.method} подтверждён!\n💰 Сумма: ${data.amount.toFixed(2)} ₽\n📝 Комментарий: ${comment}`;
+      await fetch(`https://api.telegram.org/bot8547180586:AAHINmLXuxLaK8hgy6_22DraFPqBh3JQS6A/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: Number(data.userId),
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch(e) {}
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: ОТКЛОНИТЬ ЗАЯВКУ =====
+app.post('/api/rejectWithdraw', async (req, res) => {
+  try {
+    const { requestId, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const docRef = db.collection('withdraw_requests').doc(requestId);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Заявка не найдена' });
+    const data = doc.data();
+    await db.collection('users').doc(data.userId.toString()).update({
+      balance: admin.firestore.FieldValue.increment(data.amount)
+    });
+    await docRef.update({
+      status: 'rejected',
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: СТАТИСТИКА (ИСПРАВЛЕНО) =====
+app.post('/api/getStats', async (req, res) => {
+  try {
+    const { timestamp, signature } = req.body;
+    
+    // ПРОВЕРКА ПОДПИСИ
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    
+    const usersSnapshot = await db.collection('users').get();
+    let totalBalance = 0;
+    let totalViews = 0;
+    let totalUsers = 0;
+    
+    usersSnapshot.forEach(doc => {
+      const data = doc.data();
+      totalBalance += data.balance || 0;
+      totalViews += (data.adWatchHistory || []).length;
+      totalUsers++;
+    });
+    
+    res.json({
+      totalUsers: totalUsers,
+      totalBalance: totalBalance,
+      totalViews: totalViews
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: ПОИСК ПОЛЬЗОВАТЕЛЯ =====
+app.post('/api/searchUser', async (req, res) => {
+  try {
+    const { userId, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const doc = await db.collection('users').doc(userId.toString()).get();
+    if (!doc.exists) return res.json({ user: null });
+    const data = doc.data();
+    res.json({
+      user: {
+        balance: data.balance || 0,
+        completedTasks: data.completedTasks || 0,
+        referralsCount: data.referralsCount || 0,
+        referralEarnings: data.referralEarnings || 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: НАСТРОЙКИ НАГРАД =====
+app.post('/api/getRewardSettings', async (req, res) => {
+  try {
+    const doc = await db.collection('settings').doc('rewardSettings').get();
+    if (doc.exists) {
+      res.json(doc.data());
+    } else {
+      res.json({ tabby: { min: 0.08, max: 0.10 }, adsgram: { min: 0.01, max: 0.15 } });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/updateRewardSettings', async (req, res) => {
+  try {
+    const { tabby, adsgram, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    await db.collection('settings').doc('rewardSettings').set({ tabby, adsgram });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: СПИСОК ЗАДАНИЙ =====
+app.post('/api/getTasksList', async (req, res) => {
+  try {
+    const { timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const snapshot = await db.collection('user_tasks')
+      .where('active', '==', true)
+      .get();
+    const tasks = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      tasks.push({
+        id: doc.id,
+        name: data.name,
+        link: data.link,
+        type: data.type,
+        maxUsers: data.maxUsers,
+        currentUsers: data.currentUsers || 0
+      });
+    });
+    res.json({ tasks });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/deleteTask', async (req, res) => {
+  try {
+    const { taskId, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    await db.collection('user_tasks').doc(taskId).update({ active: false });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: ПРОМОКОД =====
+app.post('/api/createPromo', async (req, res) => {
+  try {
+    const { reward, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await db.collection('promo_codes').doc(code).set({
+      code: code,
+      reward: reward,
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      used: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    res.json({ success: true, code: code });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: РАССЫЛКА =====
+app.post('/api/sendMailing', async (req, res) => {
+  try {
+    const { text, timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const usersSnapshot = await db.collection('users').get();
+    let count = 0;
+    const promises = [];
+    usersSnapshot.forEach(doc => {
+      const userId = Number(doc.id);
+      promises.push(
+        fetch(`https://api.telegram.org/bot8547180586:AAHINmLXuxLaK8hgy6_22DraFPqBh3JQS6A/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: userId,
+            text: text,
+            parse_mode: 'HTML'
+          })
+        }).then(() => { count++; }).catch(() => {})
+      );
+    });
+    await Promise.all(promises);
+    res.json({ success: true, count: count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: СБРОС БАЛАНСОВ =====
+app.post('/api/resetBalances', async (req, res) => {
+  try {
+    const { timestamp, signature } = req.body;
+    if (!verifySignature('admin', timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const usersSnapshot = await db.collection('users').get();
+    const promises = [];
+    usersSnapshot.forEach(doc => {
+      promises.push(doc.ref.update({ balance: 0, frozenBalance: 0, frozenUntil: null }));
+    });
+    await Promise.all(promises);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== АДМИН: СОЗДАТЬ ЗАДАНИЕ (ПОЛЬЗОВАТЕЛЬ) =====
+app.post('/api/createUserTask', async (req, res) => {
+  try {
+    const { userId, name, link, type, users, totalCost, timestamp, signature } = req.body;
+    if (!verifySignature(userId, timestamp, signature)) {
+      return res.status(403).json({ error: 'Недействительная подпись' });
+    }
+    const taskId = 'user_task_' + Date.now() + '_' + userId;
+    await db.collection('user_tasks').doc(taskId).set({
+      id: taskId,
+      creatorId: Number(userId),
+      name: name,
+      link: link,
+      type: type,
+      isChannel: type === 'channel',
+      reward: 0.7,
+      pricePerUser: 1.1,
+      maxUsers: users,
+      currentUsers: 0,
+      active: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    res.json({ success: true, taskId: taskId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ТЕСТОВЫЙ ЭНДПОИНТ (ПРОВЕРКА ЗАЯВОК) =====
+app.get('/api/testAllRequests', async (req, res) => {
+  try {
+    const snapshot = await db.collection('withdraw_requests').get();
+    const requests = [];
+    snapshot.forEach(doc => {
+      requests.push({ id: doc.id, ...doc.data() });
+    });
+    res.json({ total: requests.length, requests });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ЗАПУСК СЕРВЕРА =====
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Базовый сервер запущен на порту ${PORT}`);
+  console.log(`🚀 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ${PORT}`);
+  console.log('✅ ВСЕ АДМИНСКИЕ API ЗАГРУЖЕНЫ!');
 });
