@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-console.log('🔥 Базовый сервер запускается...');
+console.log('🔥 Базовый сервер запускается....');
 
 const serviceAccount = {
   "type": "service_account",
